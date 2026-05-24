@@ -2685,8 +2685,10 @@ exports.getPassword = getPassword;
 // ! Requests
 async function makeRequest(stateManager, requestManager, apiEndpoint, method = "GET", data, headers = {}) {
     const serverAPI = await getServerAPI(stateManager);
+    const requestUrl = serverAPI + apiEndpoint;
+    console.log(`[TachiDesk][makeRequest] start method=${method} endpoint=${apiEndpoint}`);
     const request = App.createRequest({
-        url: serverAPI + apiEndpoint,
+        url: requestUrl,
         method,
         data,
         headers
@@ -2697,15 +2699,19 @@ async function makeRequest(stateManager, requestManager, apiEndpoint, method = "
     // Checks if the request actually went out
     try {
         response = await requestManager.schedule(request, 0);
+        console.log(`[TachiDesk][makeRequest] scheduled endpoint=${apiEndpoint}`);
     }
     catch (error) {
+        console.log(`[TachiDesk][makeRequest] request_failed endpoint=${apiEndpoint} error=${String(error)}`);
         return new Error(serverAPI + apiEndpoint);
     }
     // Checks if we got a response, then checks if we got a good response
     try {
         responseStatus = response?.status;
+        console.log(`[TachiDesk][makeRequest] response_status endpoint=${apiEndpoint} status=${String(responseStatus)}`);
     }
     catch (error) {
+        console.log(`[TachiDesk][makeRequest] invalid_response endpoint=${apiEndpoint} error=${String(error)}`);
         return Error("Couldn't connect to server.");
     }
     if (responseStatus == 401) {
@@ -2717,8 +2723,13 @@ async function makeRequest(stateManager, requestManager, apiEndpoint, method = "
     // Checks for garbage data
     try {
         responseData = JSON.parse(response.data ?? "");
+        const payloadSummary = Array.isArray(responseData)
+            ? `array(length=${responseData.length})`
+            : `object(keys=${Object.keys(responseData ?? {}).length})`;
+        console.log(`[TachiDesk][makeRequest] parsed endpoint=${apiEndpoint} payload=${payloadSummary}`);
     }
     catch (error) {
+        console.log(`[TachiDesk][makeRequest] parse_failed endpoint=${apiEndpoint} error=${String(error)}`);
         return Error(apiEndpoint);
     }
     return responseData;
@@ -3343,6 +3354,9 @@ exports.TachiDeskInfo = {
     ],
     intents: types_1.SourceIntents.MANGA_CHAPTERS | types_1.SourceIntents.SETTINGS_UI | types_1.SourceIntents.HOMEPAGE_SECTIONS | types_1.SourceIntents.MANGA_TRACKING
 };
+function traceLog(event, details) {
+    console.log(`[TachiDesk][${event}] ${details}`);
+}
 class TachiDesk {
     constructor() {
         this.stateManager = App.createSourceStateManager();
@@ -3395,7 +3409,9 @@ class TachiDesk {
     }
     // Manga info -> uses TachiManga interface
     async getMangaDetails(mangaId) {
+        traceLog("getMangaDetails:start", `mangaId=${mangaId}`);
         const manga = await (0, Common_1.makeRequest)(this.stateManager, this.requestManager, "manga/" + mangaId);
+        traceLog("getMangaDetails:loaded", `mangaId=${mangaId} title=${String(manga?.title ?? "")}`);
         const tags = [
             App.createTagSection({
                 id: "0",
@@ -3421,6 +3437,7 @@ class TachiDesk {
     }
     // Chapter list, sets the share URl address
     async getChapters(mangaId) {
+        traceLog("getChapters:start", `mangaId=${mangaId}`);
         // Fetches manga first to use to check last fetched at
         const manga = await (0, Common_1.makeRequest)(this.stateManager, this.requestManager, "manga/" + mangaId);
         let chaptersQueryString = "manga/" + mangaId + "/chapters";
@@ -3431,6 +3448,7 @@ class TachiDesk {
             chaptersQueryString += "?onlineFetch=true";
         }
         const chaptersData = await (0, Common_1.makeRequest)(this.stateManager, this.requestManager, chaptersQueryString);
+        traceLog("getChapters:loaded", `mangaId=${mangaId} chapters=${String(chaptersData?.length ?? 0)}`);
         this.serverAddress = await (0, Common_1.getServerURL)(this.stateManager);
         const chapters = [];
         for (const chapter of chaptersData) {
@@ -3446,8 +3464,10 @@ class TachiDesk {
     }
     // Provides pages for chapter
     async getChapterDetails(mangaId, chapterId) {
+        traceLog("getChapterDetails:start", `mangaId=${mangaId} chapterId=${chapterId}`);
         const apiURL = await (0, Common_1.getServerAPI)(this.stateManager);
         const chapterData = await (0, Common_1.makeRequest)(this.stateManager, this.requestManager, "manga/" + mangaId + "/chapter/" + chapterId);
+        traceLog("getChapterDetails:loaded", `mangaId=${mangaId} chapterId=${chapterId} pageCount=${String(chapterData?.pageCount ?? 0)}`);
         const pages = [];
         // Tachidesk uses page count, so make an array of length pageCount then use the keys of array LOL
         // pretty much a for i in range() from python
@@ -3462,6 +3482,7 @@ class TachiDesk {
     }
     // Homepage sections (updated, library categories, sources)
     async getHomePageSections(sectionCallback) {
+        traceLog("getHomePageSections:start", "begin");
         const promises = [];
         const sections = [];
         // Checks if you need to migrate from v1
@@ -3470,6 +3491,7 @@ class TachiDesk {
         }
         // Error Checking here!!!
         if (await (0, Common_1.testRequest)(this.stateManager, this.requestManager) instanceof Error) {
+            traceLog("getHomePageSections:server_error", "testRequest failed");
             const section = App.createHomeSection({
                 id: "unset",
                 title: "Server Error",
@@ -3499,6 +3521,7 @@ class TachiDesk {
                 }
             }));
         }
+        traceLog("getHomePageSections:sections_built", `count=${sections.length}`);
         // Gets the settings values to set the type of rows
         // Allows for customization of each type of row (updated, category, sources)
         const mangaPerRow = await (0, Common_1.getMangaPerRow)(this.stateManager);
@@ -3629,14 +3652,17 @@ class TachiDesk {
                         image: (await (0, Common_1.getServerURL)(this.stateManager)) + manga.thumbnailUrl.slice(1)
                     }));
                 }
+                traceLog("getHomePageSections:section_loaded", `sectionId=${section.section.id} tiles=${tiles.length}`);
                 section.section.items = tiles;
                 sectionCallback(section.section);
             }));
         }
         await Promise.all(promises);
+        traceLog("getHomePageSections:done", `sections=${sections.length}`);
     }
     // home sections that contain more items than shown
     async getViewMoreItems(homepageSectionId, metadata) {
+        traceLog("getViewMoreItems:start", `sectionId=${homepageSectionId} page=${String(metadata?.page ?? 1)}`);
         const sourceId = homepageSectionId.split('-').pop() ?? "";
         const type = homepageSectionId.split("-")[0];
         const tiles = [];
@@ -3682,6 +3708,7 @@ class TachiDesk {
                 image: (await (0, Common_1.getServerURL)(this.stateManager)) + manga.thumbnailUrl.slice(1)
             }));
         }
+        traceLog("getViewMoreItems:loaded", `sectionId=${homepageSectionId} tiles=${tiles.length} hasNext=${String(Boolean(response?.hasNextPage))}`);
         // Pushes the page number and results along
         // Eventually we might have to look through this to ensure only 1 distinct manga (updated list allows duups)
         metadata = response.hasNextPage ? { page: page + 1 } : undefined;
@@ -3694,6 +3721,7 @@ class TachiDesk {
     // Could support filters but it's too complicated since each source has their own set of filters
     // and paperback considers tachidesk as 1 source.
     async getSearchResults(query, metadata) {
+        traceLog("getSearchResults:start", `query=${String(query?.title ?? "")} page=${String(metadata?.page ?? 1)}`);
         const serverSources = await (0, Common_1.getServerSources)(this.stateManager);
         const selectedSources = await (0, Common_1.getSelectedSources)(this.stateManager);
         const meta_sources = metadata?.sources ?? {};
@@ -3716,6 +3744,7 @@ class TachiDesk {
             // If request result is an error (evaluated by makeRequest), then skip source
             // This stops individual sources from messing up the whole search process.
             if (mangaResults instanceof Error) {
+                traceLog("getSearchResults:source_error", `source=${source}`);
                 continue;
             }
             for (const manga of mangaResults.mangaList) {
@@ -3727,6 +3756,7 @@ class TachiDesk {
                 }));
             }
             meta_sources[source] = mangaResults.hasNextPage;
+            traceLog("getSearchResults:source_loaded", `source=${source} tiles=${String(mangaResults?.mangaList?.length ?? 0)} hasNext=${String(Boolean(mangaResults?.hasNextPage))}`);
         }
         metadata = tiles.length !== 0 ? { page: page + 1, sources: meta_sources } : undefined;
         return App.createPagedResults({
@@ -3736,9 +3766,9 @@ class TachiDesk {
     }
     // This method is only used in 0.9, so it may or may not be completely correct, since it's not been tested.
     async getMangaProgress(mangaId) {
-        console.log(`getting manga progress for ${mangaId}`);
+        traceLog("getMangaProgress:start", `mangaId=${mangaId}`);
         const manga = await (0, Common_1.makeRequest)(this.stateManager, this.requestManager, "manga/" + mangaId + "/full");
-        console.log(`manga ${mangaId} progress: ${manga}`);
+        traceLog("getMangaProgress:loaded", `mangaId=${mangaId} hasLastChapterRead=${String(Boolean(manga?.lastChapterRead))}`);
         if (!manga.lastChapterRead) {
             return undefined;
         }
@@ -3760,18 +3790,20 @@ class TachiDesk {
     }
     async processChapterReadActionQueue(actionQueue) {
         const chapterReadActions = await actionQueue.queuedChapterReadActions();
+        traceLog("processChapterReadActionQueue:start", `count=${chapterReadActions.length}`);
         for (const readAction of chapterReadActions) {
             try {
                 let urlPath = "manga/" + readAction.mangaId + "/chapter/" + readAction.sourceChapterId;
-                console.log(`marking mangaId ${readAction.mangaId} with sourceChapterId ${readAction.sourceChapterId} as read`);
+                traceLog("processChapterReadActionQueue:mark_read", `mangaId=${readAction.mangaId} chapterId=${readAction.sourceChapterId}`);
                 await (0, Common_1.makeRequest)(this.stateManager, this.requestManager, urlPath, 'PATCH', 'read=true');
                 await actionQueue.discardChapterReadAction(readAction);
             }
             catch (error) {
-                console.log(error);
+                traceLog("processChapterReadActionQueue:error", String(error));
                 await actionQueue.retryChapterReadAction(readAction);
             }
         }
+        traceLog("processChapterReadActionQueue:done", `count=${chapterReadActions.length}`);
     }
 }
 exports.TachiDesk = TachiDesk;
