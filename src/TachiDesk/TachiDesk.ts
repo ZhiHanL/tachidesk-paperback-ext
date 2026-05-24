@@ -80,6 +80,10 @@ export const TachiDeskInfo: SourceInfo = {
     intents: SourceIntents.MANGA_CHAPTERS | SourceIntents.SETTINGS_UI | SourceIntents.HOMEPAGE_SECTIONS | SourceIntents.MANGA_TRACKING
 }
 
+function traceLog(event: string, details: string) {
+    console.log(`[TachiDesk][${event}] ${details}`)
+}
+
 export class TachiDesk implements PaperbackExtensionBase, MangaProgressProviding {
     stateManager = App.createSourceStateManager();
     requestManager = App.createRequestManager({
@@ -136,7 +140,9 @@ export class TachiDesk implements PaperbackExtensionBase, MangaProgressProviding
 
     // Manga info -> uses TachiManga interface
     async getMangaDetails(mangaId: string): Promise<SourceManga> {
+        traceLog("getMangaDetails:start", `mangaId=${mangaId}`)
         const manga: tachiManga = await makeRequest(this.stateManager, this.requestManager, "manga/" + mangaId)
+        traceLog("getMangaDetails:loaded", `mangaId=${mangaId} title=${String(manga?.title ?? "")}`)
         const tags: [TagSection] = [
             App.createTagSection({
                 id: "0",
@@ -164,6 +170,7 @@ export class TachiDesk implements PaperbackExtensionBase, MangaProgressProviding
 
     // Chapter list, sets the share URl address
     async getChapters(mangaId: string): Promise<Chapter[]> {
+        traceLog("getChapters:start", `mangaId=${mangaId}`)
         // Fetches manga first to use to check last fetched at
         const manga: tachiManga = await makeRequest(this.stateManager, this.requestManager, "manga/" + mangaId)
         let chaptersQueryString = "manga/" + mangaId + "/chapters"
@@ -176,6 +183,7 @@ export class TachiDesk implements PaperbackExtensionBase, MangaProgressProviding
         }
 
         const chaptersData: tachiChapter[] = await makeRequest(this.stateManager, this.requestManager, chaptersQueryString)
+        traceLog("getChapters:loaded", `mangaId=${mangaId} chapters=${String(chaptersData?.length ?? 0)}`)
         this.serverAddress = await getServerURL(this.stateManager)
 
         const chapters: Chapter[] = []
@@ -197,8 +205,10 @@ export class TachiDesk implements PaperbackExtensionBase, MangaProgressProviding
 
     // Provides pages for chapter
     async getChapterDetails(mangaId: string, chapterId: string): Promise<ChapterDetails> {
+        traceLog("getChapterDetails:start", `mangaId=${mangaId} chapterId=${chapterId}`)
         const apiURL = await getServerAPI(this.stateManager)
         const chapterData: tachiChapter = await makeRequest(this.stateManager, this.requestManager, "manga/" + mangaId + "/chapter/" + chapterId)
+        traceLog("getChapterDetails:loaded", `mangaId=${mangaId} chapterId=${chapterId} pageCount=${String(chapterData?.pageCount ?? 0)}`)
 
         const pages: string[] = []
 
@@ -217,6 +227,7 @@ export class TachiDesk implements PaperbackExtensionBase, MangaProgressProviding
 
     // Homepage sections (updated, library categories, sources)
     async getHomePageSections(sectionCallback: (section: HomeSection) => void): Promise<void> {
+        traceLog("getHomePageSections:start", "begin")
         const promises: Promise<void>[] = []
         const sections = []
 
@@ -227,6 +238,7 @@ export class TachiDesk implements PaperbackExtensionBase, MangaProgressProviding
 
         // Error Checking here!!!
         if (await testRequest(this.stateManager, this.requestManager) instanceof Error) {
+            traceLog("getHomePageSections:server_error", "testRequest failed")
             const section = App.createHomeSection({
                 id: "unset",
                 title: "Server Error",
@@ -263,6 +275,8 @@ export class TachiDesk implements PaperbackExtensionBase, MangaProgressProviding
                 })
             )
         }
+
+        traceLog("getHomePageSections:sections_built", `count=${sections.length}`)
 
         // Gets the settings values to set the type of rows
         // Allows for customization of each type of row (updated, category, sources)
@@ -409,6 +423,8 @@ export class TachiDesk implements PaperbackExtensionBase, MangaProgressProviding
                         )
                     }
 
+                    traceLog("getHomePageSections:section_loaded", `sectionId=${section.section.id} tiles=${tiles.length}`)
+
                     section.section.items = tiles
                     sectionCallback(section.section)
                 })
@@ -416,10 +432,12 @@ export class TachiDesk implements PaperbackExtensionBase, MangaProgressProviding
         }
 
         await Promise.all(promises)
+        traceLog("getHomePageSections:done", `sections=${sections.length}`)
     }
 
     // home sections that contain more items than shown
     async getViewMoreItems(homepageSectionId: string, metadata: any): Promise<PagedResults> {
+        traceLog("getViewMoreItems:start", `sectionId=${homepageSectionId} page=${String(metadata?.page ?? 1)}`)
         const sourceId = homepageSectionId.split('-').pop() ?? ""
         const type = homepageSectionId.split("-")[0]
 
@@ -472,6 +490,8 @@ export class TachiDesk implements PaperbackExtensionBase, MangaProgressProviding
             )
         }
 
+        traceLog("getViewMoreItems:loaded", `sectionId=${homepageSectionId} tiles=${tiles.length} hasNext=${String(Boolean(response?.hasNextPage))}`)
+
         // Pushes the page number and results along
         // Eventually we might have to look through this to ensure only 1 distinct manga (updated list allows duups)
         metadata = response.hasNextPage ? { page: page + 1 } : undefined
@@ -485,6 +505,7 @@ export class TachiDesk implements PaperbackExtensionBase, MangaProgressProviding
     // Could support filters but it's too complicated since each source has their own set of filters
     // and paperback considers tachidesk as 1 source.
     async getSearchResults(query: SearchRequest, metadata: any): Promise<PagedResults> {
+        traceLog("getSearchResults:start", `query=${String(query?.title ?? "")} page=${String(metadata?.page ?? 1)}`)
         const serverSources = await getServerSources(this.stateManager)
         const selectedSources = await getSelectedSources(this.stateManager)
         const meta_sources: { [key: string]: boolean } = metadata?.sources ?? {}
@@ -510,6 +531,7 @@ export class TachiDesk implements PaperbackExtensionBase, MangaProgressProviding
             // If request result is an error (evaluated by makeRequest), then skip source
             // This stops individual sources from messing up the whole search process.
             if (mangaResults instanceof Error) {
+                traceLog("getSearchResults:source_error", `source=${source}`)
                 continue
             }
 
@@ -524,6 +546,7 @@ export class TachiDesk implements PaperbackExtensionBase, MangaProgressProviding
                 )
             }
             meta_sources[source] = mangaResults.hasNextPage
+            traceLog("getSearchResults:source_loaded", `source=${source} tiles=${String(mangaResults?.mangaList?.length ?? 0)} hasNext=${String(Boolean(mangaResults?.hasNextPage))}`)
         }
 
         metadata = tiles.length !== 0 ? { page: page + 1, sources: meta_sources } : undefined
@@ -536,9 +559,9 @@ export class TachiDesk implements PaperbackExtensionBase, MangaProgressProviding
 
     // This method is only used in 0.9, so it may or may not be completely correct, since it's not been tested.
     async getMangaProgress(mangaId: string): Promise<MangaProgress | undefined> {
-        console.log(`getting manga progress for ${mangaId}`);
+        traceLog("getMangaProgress:start", `mangaId=${mangaId}`)
         const manga: tachiManga = await makeRequest(this.stateManager, this.requestManager, "manga/" + mangaId + "/full")
-        console.log(`manga ${mangaId} progress: ${manga}`);
+        traceLog("getMangaProgress:loaded", `mangaId=${mangaId} hasLastChapterRead=${String(Boolean(manga?.lastChapterRead))}`)
         if (!manga.lastChapterRead) {
             return undefined
         }
@@ -562,17 +585,20 @@ export class TachiDesk implements PaperbackExtensionBase, MangaProgressProviding
 
     async processChapterReadActionQueue(actionQueue: TrackerActionQueue): Promise<void> {
         const chapterReadActions = await actionQueue.queuedChapterReadActions()
+        traceLog("processChapterReadActionQueue:start", `count=${chapterReadActions.length}`)
 
         for (const readAction of chapterReadActions) {
             try {
                 let urlPath = "manga/" + readAction.mangaId + "/chapter/" + readAction.sourceChapterId;
-                console.log(`marking mangaId ${readAction.mangaId} with sourceChapterId ${readAction.sourceChapterId} as read`)
+                traceLog("processChapterReadActionQueue:mark_read", `mangaId=${readAction.mangaId} chapterId=${readAction.sourceChapterId}`)
                 await makeRequest(this.stateManager, this.requestManager, urlPath, 'PATCH', 'read=true')
                 await actionQueue.discardChapterReadAction(readAction)
             } catch (error) {
-                console.log(error)
+                traceLog("processChapterReadActionQueue:error", String(error))
                 await actionQueue.retryChapterReadAction(readAction)
             }
         }
+
+        traceLog("processChapterReadActionQueue:done", `count=${chapterReadActions.length}`)
     }
 }

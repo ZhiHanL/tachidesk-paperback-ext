@@ -293,9 +293,11 @@ export async function getPassword(stateManager: SourceStateManager) {
 // ! Requests
 export async function makeRequest(stateManager: SourceStateManager, requestManager: RequestManager, apiEndpoint: string, method = "GET", data?: Record<string, string> | string, headers: Record<string, string> = {}) {
     const serverAPI = await getServerAPI(stateManager)
+    const requestUrl = serverAPI + apiEndpoint
+    console.log(`[TachiDesk][makeRequest] start method=${method} endpoint=${apiEndpoint}`)
 
     const request = App.createRequest({
-        url: serverAPI + apiEndpoint,
+        url: requestUrl,
         method,
         data,
         headers
@@ -308,16 +310,20 @@ export async function makeRequest(stateManager: SourceStateManager, requestManag
     // Checks if the request actually went out
     try {
         response = await requestManager.schedule(request, 0);
+        console.log(`[TachiDesk][makeRequest] scheduled endpoint=${apiEndpoint}`)
     }
     catch (error: any) {
+        console.log(`[TachiDesk][makeRequest] request_failed endpoint=${apiEndpoint} error=${String(error)}`)
         return new Error(serverAPI + apiEndpoint)
     }
 
     // Checks if we got a response, then checks if we got a good response
     try {
         responseStatus = response?.status
+        console.log(`[TachiDesk][makeRequest] response_status endpoint=${apiEndpoint} status=${String(responseStatus)}`)
     }
     catch (error: any) {
+        console.log(`[TachiDesk][makeRequest] invalid_response endpoint=${apiEndpoint} error=${String(error)}`)
         return Error("Couldn't connect to server.")
     }
     if (responseStatus == 401) {
@@ -331,8 +337,13 @@ export async function makeRequest(stateManager: SourceStateManager, requestManag
     // Checks for garbage data
     try {
         responseData = JSON.parse(response.data ?? "")
+        const payloadSummary = Array.isArray(responseData)
+            ? `array(length=${responseData.length})`
+            : `object(keys=${Object.keys(responseData ?? {}).length})`
+        console.log(`[TachiDesk][makeRequest] parsed endpoint=${apiEndpoint} payload=${payloadSummary}`)
     }
     catch (error: any) {
+        console.log(`[TachiDesk][makeRequest] parse_failed endpoint=${apiEndpoint} error=${String(error)}`)
         return Error(apiEndpoint)
     }
 
